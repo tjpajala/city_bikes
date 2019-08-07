@@ -3,6 +3,10 @@ import requests
 from tqdm import tqdm
 import tarfile
 import io
+import pandas as pd
+import json
+import os
+import urllib
 
 TARGET_FOLDER = "hsl_data"
 
@@ -14,14 +18,29 @@ def fetch_tar(year, month, target_folder=TARGET_FOLDER):
     r = requests.get(url)
 
 
-    with tarfile.open(mode="r", fileobj=io.BytesIO(r.content)) as tar:
+    urllib.request.urlretrieve(url,"./"+target_folder+"/"+"temp.tar.xz")
+
+    with tarfile.open('./hsl_data/temp.tar.xz') as tar:
         # Go over each member
         for member in tqdm(iterable=tar.getmembers(), total=len(tar.getmembers()), unit="file"):
             # Extract member
-            tar.extract(member=member, path="./"+target_folder)
+            tar.extract(member=member, path="./" + target_folder + "/")
 
 
-fetch_tar(2018, 9)
+# example
+# fetch_tar(2018, 9)
+
+for month in range(8,13):
+    year = 2018
+    s = datetime.datetime(year=year, month=month, day=1).strftime("%Y%m")
+    print(s)
+    fetch_tar(year, month)
+
+for month in range(1,7):
+    year = 2019
+    s = datetime.datetime(year=year, month=month, day=1).strftime("%Y%m")
+    print(s)
+    fetch_tar(year, month)
 
 
 def fetch_2019(target_folder = TARGET_FOLDER):
@@ -69,6 +88,8 @@ def json_to_csv():
             print("Invalid JSON, skipping...")
         except KeyError:
             print("Key ['result'] not in file, skipping...")
+        except UnicodeDecodeError:
+            print("Invalid encoding, skipping...")
         #tmp = pd.read_json("./hsl_data/"+file)
         #with open("./hsl_data/"+curfile, 'r') as f:
             #tmp = pd.read_json(json.dumps(json.load(f)["result"]), orient="records")
@@ -77,9 +98,4 @@ def json_to_csv():
     df = pd.DataFrame(d)
     df.to_csv('./data/fillaridata.csv')
 
-json_files = os.listdir("./hsl_data")
-file = json_files[123]
-with open("./hsl_data/"+file,'r') as f:
-    data_json = json.load(f)
-
-pd.read_json(data_json["result"][0], orient="split")
+json_to_csv()
