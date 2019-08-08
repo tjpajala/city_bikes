@@ -2,12 +2,11 @@ import datetime
 import requests
 from tqdm import tqdm
 import tarfile
-import io
+import urllib
 import pandas as pd
 import json
-import os
-import urllib
-
+import glob
+import dateutil
 TARGET_FOLDER = "hsl_data"
 
 
@@ -71,19 +70,11 @@ def fetch_2019(target_folder = TARGET_FOLDER):
 
 
 def json_to_csv():
-    import os
-    import pandas as pd
-    import json
-    import itertools
-    import glob
-    #json_files = os.listdir("./hsl_data")
-    #json_files = [f for f in os.listdir('./hsl_data') if re.match('.json', f)]
     json_files = glob.glob("./hsl_data/*.json")
-    df = pd.DataFrame()
     data_list = []
     for curfile in tqdm(json_files[0:len(json_files)], unit="files"):
         try:
-            data_list.append(json.load(open(curfile))["result"])
+            data_list.append(pd.DataFrame(json.load(open(curfile))["result"]).assign(timestamp=dateutil.parser.parse(curfile.rsplit("_")[-1].split(".")[0]).strftime("%d/%m/%Y %H:%M:%S")))
         except json.decoder.JSONDecodeError:
             print("Invalid JSON, skipping...")
         except KeyError:
@@ -94,8 +85,44 @@ def json_to_csv():
         #with open("./hsl_data/"+curfile, 'r') as f:
             #tmp = pd.read_json(json.dumps(json.load(f)["result"]), orient="records")
         #df=df.append(tmp)
-    d = list(itertools.chain.from_iterable(data_list))
-    df = pd.DataFrame(d)
-    df.to_csv('./data/fillaridata.csv')
+    #d = list(itertools.chain.from_iterable(data_list))
+    df = pd.concat(data_list)
+    # drop stations with empty coordinates
+    df = df[df.coordinates != ""]
+    #coordinates to lat and long
+    df[["lat","lon"]] = df.coordinates.str.split(",", expand=True)
+    # round lat and long to fix errors
+    df.lat = round(df.lat.astype(float), 4)
+    df.lon = round(df.lon.astype(float), 4)
+    df.drop(columns=["coordinates"], inplace=True)
+
+    # rename style column to status
+    df.rename(columns = {'style': 'status'}, inplace=True)
+
+    # transform API call times to correct timezone (US/Mountain -> Europe/Helsinki)
+    # Not necessary anymore
+    # server_timezone = pytz.timezone("US/Mountain")
+    # helsinki_timezone = pytz.timezone("Europe/Helsinki")
+    df["datetime"] = [datetime.datetime.strptime(x, "%d/%m/%Y %H:%M:%S") for x in df.timestamp]
+    #df["datetime"] = [server_timezone.localize(x).astimezone(helsinki_timezone) for x in df.datetime]
+    df["date"] = [datetime.datetime.strftime(x, "%d/%m/%Y") for x in df.datetime]
+    df["time"] = [datetime.datetime.strftime(x, "%H:%M") for x in df.datetime]
+
+    #fix types
+    df.name = df.name.astype(str)
+    df.status = df.status.astype(str)
+    df.timestamp = df.timestamp.astype(str)
+    df.date = df.date.astype(str)
+    df.time = df.time.astype(str)
+
+    #rename columns
+    df.rename(columns={'avl_bikes': 'bikesAvailable', 'free_slots': 'spacesAvailable',
+                        'operative': 'allowDropoff', 'total_slots': 'totalSpaces',
+                         'timestamp': 'Timestamp'},inplace=True)
+
+    # reset index for feather
+    df.reset_index(drop=True, inplace=True)
+    df.to_feather('./data/fillaridata.feather')
 
 json_to_csv()
+
