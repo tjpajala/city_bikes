@@ -7,7 +7,14 @@ import pandas as pd
 import json
 import glob
 import dateutil
+import logging
+
+
 TARGET_FOLDER = "hsl_data"
+logging.basicConfig(
+    format='%(asctime)s %(levelname)-8s %(message)s',
+    level=logging.DEBUG,
+    datefmt='%Y-%m-%d %H:%M:%S')
 
 
 def fetch_tar(year, month, target_folder=TARGET_FOLDER):
@@ -69,6 +76,15 @@ def fetch_2019(target_folder = TARGET_FOLDER):
             print("File " + s + " not found on server, skipping.")
 
 
+
+def get_spaces(data):
+    # spaces = data.bikesAvailable + data.spacesAvailable
+    # names = data.name
+
+    #d = data.assign(space = lambda frame: (frame.bikesAvailable + frame.spacesAvailable))
+    return data.groupby('name').agg({'space': min})
+
+
 def json_to_csv():
     json_files = glob.glob("./hsl_data/*.json")
     data_list = []
@@ -81,12 +97,11 @@ def json_to_csv():
             print("Key ['result'] not in file, skipping...")
         except UnicodeDecodeError:
             print("Invalid encoding, skipping...")
-        #tmp = pd.read_json("./hsl_data/"+file)
-        #with open("./hsl_data/"+curfile, 'r') as f:
-            #tmp = pd.read_json(json.dumps(json.load(f)["result"]), orient="records")
-        #df=df.append(tmp)
-    #d = list(itertools.chain.from_iterable(data_list))
+
     df = pd.concat(data_list)
+    logging.debug("Df concat completed.")
+    del data_list
+
     # drop stations with empty coordinates
     df = df[df.coordinates != ""]
     #coordinates to lat and long
@@ -95,6 +110,8 @@ def json_to_csv():
     df.lat = round(df.lat.astype(float), 4)
     df.lon = round(df.lon.astype(float), 4)
     df.drop(columns=["coordinates"], inplace=True)
+    logging.debug("Coordinates completed.")
+
 
     # rename style column to status
     df.rename(columns = {'style': 'status'}, inplace=True)
@@ -104,9 +121,12 @@ def json_to_csv():
     # server_timezone = pytz.timezone("US/Mountain")
     # helsinki_timezone = pytz.timezone("Europe/Helsinki")
     df["datetime"] = [datetime.datetime.strptime(x, "%d/%m/%Y %H:%M:%S") for x in df.timestamp]
+    logging.debug("Datetime stripped.")
     #df["datetime"] = [server_timezone.localize(x).astimezone(helsinki_timezone) for x in df.datetime]
-    df["date"] = [datetime.datetime.strftime(x, "%d/%m/%Y") for x in df.datetime]
+    df["date"] = [datetime.datetime.strftime(x, "%Y-%m-%d") for x in df.datetime]
     df["time"] = [datetime.datetime.strftime(x, "%H:%M") for x in df.datetime]
+    logging.debug("Date and time converted.")
+
 
     #fix types
     df.name = df.name.astype(str)
@@ -114,15 +134,33 @@ def json_to_csv():
     df.timestamp = df.timestamp.astype(str)
     df.date = df.date.astype(str)
     df.time = df.time.astype(str)
+    logging.debug("Type changes completed.")
 
     #rename columns
     df.rename(columns={'avl_bikes': 'bikesAvailable', 'free_slots': 'spacesAvailable',
                         'operative': 'allowDropoff', 'total_slots': 'totalSpaces',
                          'timestamp': 'Timestamp'},inplace=True)
 
+    logging.debug("Df rename completed.")
+
+
+
+
     # reset index for feather
     df.reset_index(drop=True, inplace=True)
+    logging.debug("Df reset_index completed.")
+
     df.to_feather('./data/fillaridata.feather')
 
 json_to_csv()
+
+stamps = [dateutil.parser.parse(x.rsplit("_")[-1].split(".")[0]).strftime("%d/%m/%Y %H:%M:%S") for x in json_files]
+dates = [datetime.datetime.strftime(datetime.datetime.strptime(x, "%d/%m/%Y %H:%M:%S"), "%Y-%m-%d") for x in stamps]
+times = [datetime.datetime.strftime(datetime.datetime.strptime(x, "%d/%m/%Y %H:%M:%S"), "%H:%M") for x in stamps]
+
+time_parsed = pd.DataFrame({
+    "stamps": stamps,
+    "dates": dates,
+    "times": times,
+}, index=range(0,len(stamps)))
 

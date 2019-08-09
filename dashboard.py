@@ -5,10 +5,9 @@ from dash.dependencies import Input, Output
 import plotly.graph_objs as go
 from analysis import aggregate_data, load_and_clean_data
 from datetime import datetime, timedelta
-import json
 import pandas as pd
-import numpy as np
-import pytz
+# import pytz
+import logging
 
 from config import MAPBOX_ACCESS_TOKEN
 
@@ -21,13 +20,20 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 app.config['suppress_callback_exceptions']=True
 
 DATA_FOLDER = './data'
-SOURCE_FILE = 'fillaridata.csv'
+SOURCE_FILE = 'fillaridata.feather'
+logging.basicConfig(
+    format='%(asctime)s %(levelname)-8s %(message)s',
+    level=logging.DEBUG,
+    datefmt='%Y-%m-%d %H:%M:%S')
+
 
 # load data
+logging.debug("Starting loading data.")
 df = load_and_clean_data(DATA_FOLDER, SOURCE_FILE)
-
+logging.debug("Data loaded.")
 #aggregate data over time
 agg_data = aggregate_data(df)
+logging.debug("Data aggregation completed.")
 
 
 def get_dates(data, date_col='date'):
@@ -35,20 +41,13 @@ def get_dates(data, date_col='date'):
 
 
 def get_hoverlabels(data, cols):
-    return data[cols].apply(lambda row: ": ".join(row.values.astype(str)), axis=1)
+    d = data[cols].groupby(cols[0]).agg({'median'}).reset_index()
+    return d.apply(lambda row: ": ".join(row.values.astype(str)), axis=1)
 
-
-def get_spaces(data):
-    d = data.assign(space = lambda frame: (frame.bikesAvailable + frame.spacesAvailable))
-    return d.groupby('name').agg({'space': min})
 
 dates = get_dates(df, 'date')
 times = [datetime.strftime(datetime.strptime("00:00:00","%H:%M:%S")+timedelta(minutes=10*x),"%H:%M")
          for x in range(int(24*60/10))]
-
-#calculate number of spaces for each station, add to original df
-spaces = get_spaces(df)
-df["space"] = [spaces.loc[x][0] for x in df.name]
 
 
 app.layout = html.Div([
@@ -61,6 +60,16 @@ app.layout = html.Div([
 ])
 
 
+def filter_df(selected_date):
+    if selected_date is None:
+        selected_date = pd.Timestamp(dates.max()).to_pydatetime()
+    else:
+        selected_date = selected_date
+    # filtered_df = df[df.date == datetime.strptime(selected_date,"%d/%m/%Y")]
+    filtered_df = df[df.date == selected_date]
+    return filtered_df
+
+
 @app.callback(
     Output('tabs-component','children'),
     [Input('tabs-selector','value')]
@@ -68,27 +77,18 @@ app.layout = html.Div([
 def render_tabs(tab):
     if tab=='tab-1':
         return html.Div([
-            html.H3("Overview of availability"),
-            dcc.Graph(
-                id='lat-long-available',
-                style={'height': 600, 'width': 1200},
-                animate=False
-
-            ),
             html.Div([
-                dcc.Slider(
-                    id='date-slider',
-                    min=0,
-                    max=len(dates) - 1,
-                    marks={i: {'label': str(dates[i]),
-                               'style': {'color': 'red',
-                                         "transform": "translateX(-0px) translateY(-70px) rotate(90deg)"
-                                         }}
-                           for i in range(len(dates))},
-                    value=1
+                html.H3("Overview of availability"),
+                dcc.DatePickerSingle(
+                    id='tab1-datepicker',
+                    min_date_allowed=pd.Timestamp(dates.min()).to_pydatetime(),
+                    max_date_allowed=pd.Timestamp(dates.max()).to_pydatetime(),
+                    initial_visible_month=pd.Timestamp(dates.max()).to_pydatetime(),
+                    date=str(pd.Timestamp(dates.max()).to_pydatetime()),
+                    display_format="DD/MM/YYYY"
                 ),
                 dcc.Slider(
-                    id="hour-slider",
+                    id="selected-hour-for-day-slider",
                     min=0,
                     max=len(times) - 1,
                     marks={i: {'label': str(times[i]),
@@ -96,32 +96,32 @@ def render_tabs(tab):
                                          "transform": "translateX(0px) translateY(0px) rotate(90deg)"
                                          }}
                            for i in range(len(times))},
-                    value=3
-                )
-            ], style={'padding': 35})
+                    value=3)
+            ], style={'padding': 35}),
+            dcc.Graph(
+                id='lat-long-available',
+                style={'height': 500, 'width': 1200},
+                animate=False
+
+            ),
         ])
     if tab == 'tab-2':
         return html.Div([
             html.H3('Individual station view'),
+            dcc.DatePickerSingle(
+                id='tab2-datepicker',
+                min_date_allowed=pd.Timestamp(dates.min()).to_pydatetime(),
+                max_date_allowed=pd.Timestamp(dates.max()).to_pydatetime(),
+                initial_visible_month=pd.Timestamp(dates.max()).to_pydatetime(),
+                date=str(pd.Timestamp(dates.max()).to_pydatetime()),
+                display_format="DD/MM/YYYY"
+            ),
             # left side panel with map and slider
             html.Div([
-                #html.H3('Tab content 2'),
                 dcc.Graph(
                     id='lat-long-minimap',
                     animate=False
-
                 ),
-                dcc.Slider(
-                    id='date-slider-tab2',
-                    min=0,
-                    max=len(dates) - 1,
-                    marks={i: {'label': str(dates[i]),
-                               'style': {'color': 'red',
-                                         "transform": "translateX(-0px) translateY(-70px) rotate(90deg)"
-                                         }}
-                           for i in range(len(dates))},
-                    value=1
-                    )
             ], style={'height': "25%", 'width': "25%", 'display': 'inline-block'}),
 
             # main panel with graphs
@@ -133,27 +133,27 @@ def render_tabs(tab):
 
 @app.callback(
     Output('daily-status-selected-station','figure'),
-    [Input('date-slider-tab2', 'value'),
+    [Input('tab2-datepicker', 'date'),
      Input('lat-long-minimap','clickData')]
 )
 def update_daily_status(selected_date, clicked_station):
     if selected_date is None:
-        selected_date = df.date.unique()[0]
+        selected_date = pd.Timestamp(dates.max()).to_pydatetime()
     else:
-        selected_date = dates[selected_date]
+        selected_date = selected_date
 
     if clicked_station is None:
-        selected_station = "Porthania"
+        selected_station = "025 Narinkka"
     else:
         selected_station = clicked_station["points"][0]["text"].split(":")[0]
 
-    filtered_df = df[(df.date == selected_date) & (df.name == selected_station)]
+    filtered_df = df[(df.date == selected_date) & (df.name == selected_station)].sort_values('datetime')
 
     # we need to convert to UTC, because plotly autoconverts to utc time
-    utc_zoned = [filtered_df.datetime.iloc[i].replace(tzinfo=pytz.timezone("UTC")) for i in range(len(filtered_df))]
+    # utc_zoned = [filtered_df.datetime.iloc[i].replace(tzinfo=pytz.timezone("UTC")) for i in range(len(filtered_df))]
     x = filtered_df.datetime.astype('str')
     y = filtered_df.bikesAvailable
-    y2 = filtered_df.bikesAvailable / filtered_df.space * 100 #as percentage
+    y2 = filtered_df.bikesAvailable / filtered_df.totalSpaces * 100 #as percentage
     trace = go.Scatter(
         x=x,
         y=y,
@@ -180,17 +180,22 @@ def update_daily_status(selected_date, clicked_station):
             showlegend=False
         )
     }
+
+
 @app.callback(
     Output('lat-long-minimap','figure'),
-    [Input('date-slider-tab2', 'value')]
+    [Input('tab2-datepicker', 'date')]
 )
 def update_minimap(selected_date):
-    if selected_date is None:
-        selected_date = df.date.unique()[0]
-    else:
-        selected_date = dates[selected_date]
-
-    filtered_df = df[(df.date == selected_date)]
+    # if selected_date is None:
+    #     selected_date = df.date.unique()[0]
+    # else:
+    #     selected_date = dates[selected_date]
+    #
+    # filtered_df = df[(df.date == selected_date)]
+    filtered_df = filter_df(selected_date)
+    #select midday for minimap
+    filtered_df = filtered_df[filtered_df.time=="12:00"]
     print("selected date: " + str(selected_date))
     print("selected time: " + "no time on TAB2")
     print("rows: " + str(len(filtered_df)))
@@ -234,16 +239,14 @@ def update_minimap(selected_date):
         )
     }
 
+
 @app.callback(
-    Output('hour-slider','marks'),
-    [Input('date-slider','value')]
+    Output('selected-hour-for-day-slider','marks'),
+    [Input('tab1-datepicker','date')]
 )
-def update_hour_slider_marks(selected_date):
-    if selected_date is None:
-        selected_date = df.date.unique()[0]
-    else:
-        selected_date = dates[selected_date]
-    filtered_df = df[(df.date == selected_date)]
+def update_hour_for_day_slider_marks(selected_date):
+    print(selected_date)
+    filtered_df = filter_df(selected_date)
     available_times = filtered_df.time.unique()
     col = ['red' if x in available_times else 'lightgrey' for x in times]
     marks = {i: {'label': str(times[i]),
@@ -252,15 +255,17 @@ def update_hour_slider_marks(selected_date):
                            }}
              for i in range(len(times))}
     return marks
+
+
 @app.callback(
     Output('lat-long-available', 'figure'),
-    [Input('date-slider', 'value'),
-     Input('hour-slider','value')])
+    [Input('tab1-datepicker','date'),
+     Input('selected-hour-for-day-slider','value')])
 def update_figure(selected_date, selected_time):
     if selected_date is None:
-        selected_date = df.date.unique()[0]
+        selected_date = pd.Timestamp(dates.max()).to_pydatetime()
     else:
-        selected_date = dates[selected_date]
+        selected_date = selected_date
 
     if selected_time is None:
         selected_time = times
