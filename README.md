@@ -14,10 +14,16 @@ Get all the files into your chosen directory with git:
 Make target folder for HSL data:
 `mkdir hsl_data`
 
+Install necessary packages with conda
+`conda install pyarrow requests tqdm dash`
+
 Change fetching time parameters in `fetch_hls_json.py`
 Run fetching with:
 
 `python -m fetch_hsl_json.py`
+
+Save config file named `config.py` that has your Mapbox Access Token (for dashboard maps)
+`echo "MAPBOX_ACCESS_TOKEN = 'YOUR_ACCESS_TOKEN_HERE'" > config.py`
 
 Start dashboard with:
 
