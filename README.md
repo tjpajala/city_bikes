@@ -9,7 +9,7 @@ dashboard from that with Plotly.
 
 Get all the files into your chosen directory with git:
 
-`git pull tjpajala/city_bikes`
+`git clone https://github.com/tjpajala/city_bikes.git`
 
 Make target folder for HSL data:
 `mkdir hsl_data`
