@@ -11,8 +11,8 @@ Get all the files into your chosen directory with git:
 
 `git clone https://github.com/tjpajala/city_bikes.git`
 
-Make target folder for HSL data:
-`mkdir hsl_data`
+Make target folder for downloaded HSL data and final combined data:
+`mkdir hsl_data data`
 
 Install necessary packages with conda
 `conda install pyarrow requests tqdm dash`
