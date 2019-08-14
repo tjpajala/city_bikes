@@ -153,14 +153,3 @@ def json_to_csv():
     df.to_feather('./data/fillaridata.feather')
 
 json_to_csv()
-
-stamps = [dateutil.parser.parse(x.rsplit("_")[-1].split(".")[0]).strftime("%d/%m/%Y %H:%M:%S") for x in json_files]
-dates = [datetime.datetime.strftime(datetime.datetime.strptime(x, "%d/%m/%Y %H:%M:%S"), "%Y-%m-%d") for x in stamps]
-times = [datetime.datetime.strftime(datetime.datetime.strptime(x, "%d/%m/%Y %H:%M:%S"), "%H:%M") for x in stamps]
-
-time_parsed = pd.DataFrame({
-    "stamps": stamps,
-    "dates": dates,
-    "times": times,
-}, index=range(0,len(stamps)))
-
