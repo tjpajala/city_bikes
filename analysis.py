@@ -38,3 +38,8 @@ def aggregate_data(data, groupby="name"):
 
 data = load_and_clean_data(DATA_FOLDER, SOURCE_FILENAME)
 agg_data = aggregate_data(data)
+
+def get_empirical_intervals(data):
+    times = [x for x in data.time.unique() if x in [str(t)+':00' for t in range(0,24)]]
+    df = data.loc[data.time.isin(times),:]
+    vals = df.groupby(by=["name","time"]).agg({"bikesAvailable":["mean","std"]})
